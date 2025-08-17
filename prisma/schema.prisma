@@ -17,11 +17,67 @@ model Message{
 
   id String @id @default(uuid())
 
+  room Room @relation( "roomMessages", fields: [roomId], references: [id], onDelete: Cascade)
+  roomId String @map("room_id") //many to one
+
+  user User? @relation( "userMessages", fields: [userId], references: [id], onDelete: Cascade)
+  userId String? @map("user_id") //many to one
+
   text String 
+
+  isSystem Boolean @default(false)
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at") 
 
   @@map("messages")
+  
+  @@index([roomId, createdAt]) //speed up for this 2 rows
+}
+
+model Room {
+  id String @id @default(uuid())
+
+  roomName String @unique
+
+   type RoomType @default(PUBLIC) // "public" | "private" | "dm"
+
+  messages Message[] @relation("roomMessages")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at") 
+
+}
+
+model User {
+
+  id String @id @default(uuid())
+
+  email String @unique
+  password String
+
+  name String
+
+  role UserPermission @default(USER)
+
+  messages Message[] @relation("userMessages") // array relation fields (Message[]) are always initialized as an empty array by default.
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+enum UserPermission {
+  ADMIN
+  USER
+  MODERATOR
+}
+
+enum RoomType {
+  PUBLIC
+  PRIVATE
+  DM
+
+  @@map("enum_room_types")
 }
