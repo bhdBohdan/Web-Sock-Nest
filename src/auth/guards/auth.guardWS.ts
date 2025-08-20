@@ -3,11 +3,15 @@ import { AuthGuard } from '@nestjs/passport';
 import { User } from '@prisma/client';
 import { Socket } from 'socket.io';
 
-export class JwtGuard extends AuthGuard('jwt') {
+export class JwtGuardWS extends AuthGuard('jwt') {
   getRequest(context: ExecutionContext) {
     const client = context.switchToWs().getClient<Socket>();
 
-    return { headers: { authorization: client.handshake.auth?.token } }; //like http, as passport expects
+    const token = client.handshake.auth?.token;
+
+    return {
+      headers: { authorization: token ? `Bearer ${token}` : undefined },
+    }; //like http, as passport expects
   }
 
   //handleRequest is called after the strategy (JWT) validates the token.

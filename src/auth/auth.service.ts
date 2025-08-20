@@ -80,7 +80,7 @@ export class AuthService {
 
     const isValidPassword = await verify(user.password, password);
 
-    if (isValidPassword) {
+    if (!isValidPassword) {
       throw new NotFoundException('User not found'); //same so to confuse bad guys
     }
 
@@ -166,5 +166,6 @@ export class AuthService {
 
   async logout(res: Response) {
     this.setCookie(res, 'refreshToken', new Date(0));
+    return true;
   }
 }
