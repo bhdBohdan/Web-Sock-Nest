@@ -3,6 +3,7 @@ import {
   MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -11,30 +12,49 @@ import { ChatService } from './chat.service';
 import { Server, Socket } from 'socket.io';
 import { SendMessageDto } from './send-message.dto';
 import { AuthorizationWS } from 'src/auth/decorators/ws/authorization.decorator';
-import { AuthorizedWS } from 'src/auth/decorators/ws/authorizedWS.decorator';
 import { User } from '@prisma/client';
-import { NotFoundException, ValidationPipe } from '@nestjs/common';
-import { NotFoundError } from 'rxjs';
+import { Logger, NotFoundException, ValidationPipe } from '@nestjs/common';
+import { UserWS } from 'src/auth/decorators/ws/authorizedWS.decorator';
+import { WsRoleGuard } from 'src/auth/decorators/ws/roleWS.decorator';
 
-@WebSocketGateway(3001, {}) //Contoller //Resolver
+@WebSocketGateway(3001, {
+  cors: {
+    origin: '*', // Adjust for production
+  },
+}) //Contoller //Resolver
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
-
+  private readonly logger = new Logger(ChatGateway.name);
   constructor(private readonly chatService: ChatService) {}
 
   handleConnection(client: Socket) {
-    console.log('client connected', client.id);
+    this.logger.log(`Client connected: ${client.id}`);
+    this.logger.debug(
+      `Handshake auth: ${JSON.stringify(client.handshake.auth)}`,
+    );
+    this.logger.debug(
+      `Handshake headers: ${JSON.stringify(client.handshake.headers)}`,
+    );
+    this.logger.debug(
+      `Client rooms: ${JSON.stringify(Array.from(client.rooms))}`,
+    );
   }
 
   handleDisconnect(client: Socket) {
     console.log('client disconnected ', client.id);
   }
 
+  // @WsRoleGuard('MODERATOR')
+  // @SubscribeMessage('test')
+  // test(@UserWS() user: User) {
+  //     this.logger.log(user);
+  // }
+
   @AuthorizationWS()
-  @SubscribeMessage('sendMessage')
+  @SubscribeMessage('message:send')
   async handleMessage(
     @MessageBody(new ValidationPipe({ transform: true })) dto: SendMessageDto,
-    @AuthorizedWS() user: User,
+    @UserWS() user: User,
   ) {
     const { roomName, text } = dto;
     const message = await this.chatService.addMessage(roomName, user, text);
@@ -66,7 +86,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleJoinServer(
     @ConnectedSocket() client: Socket,
     @MessageBody() room: string,
-    @AuthorizedWS() user: User,
+    @UserWS() user: User,
   ) {
     try {
       if (!(await this.chatService.findRoom(room))) {
@@ -87,15 +107,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       client.emit('message:get', messages);
     } catch (err) {
-      return err;
+      console.log(err);
     }
   }
 
+  @AuthorizationWS()
   @SubscribeMessage('room:leave')
   async handleLeaveServer(
     @ConnectedSocket() client: Socket,
     @MessageBody() room: string,
-    @AuthorizedWS() user: User,
+    @UserWS() user: User,
   ) {
     client.leave(room);
     console.log('client leaved room');
@@ -106,13 +127,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.broadcast.to(room).emit('message:new', message);
   }
 
+  @WsRoleGuard('MODERATOR', 'ADMIN')
   @SubscribeMessage('room:create')
   async handleCreateServer(
     @ConnectedSocket() client: Socket,
-    @MessageBody() room: string,
-    @MessageBody() type: 'DM' | 'PRIVATE' | 'PUBLIC',
-    @AuthorizedWS() user: User,
+    @MessageBody()
+    { room, type }: { room: string; type: 'DM' | 'PRIVATE' | 'PUBLIC' },
+
+    //@UserWS() user: User,
   ) {
+    this.logger.debug(`Handshake auth: ${room},  ${type}`);
     try {
       if (await this.chatService.findRoom(room)) {
         throw new NotFoundException('Room already exists');
@@ -123,14 +147,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const chats = this.chatService.retrieveRooms('PUBLIC');
 
       client.emit('room:list', chats);
-    } catch {}
+    } catch (err) {
+      console.log(err);
+    }
   }
 
+  @WsRoleGuard('MODERATOR', 'ADMIN') //acts like @authWs() anyway
   @SubscribeMessage('room:delete')
   async handleDeleteServer(
     @ConnectedSocket() client: Socket,
     @MessageBody() room: string,
-    @AuthorizedWS() user: User,
+    @UserWS() user: User,
   ) {
     try {
       if (!(await this.chatService.findRoom(room))) {
@@ -142,6 +169,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const chats = this.chatService.retrieveRooms('PUBLIC');
 
       client.emit('room:list', chats);
-    } catch {}
+    } catch (err) {
+      console.log(err);
+    }
   }
 }

@@ -1,35 +1,53 @@
-import { ExecutionContext } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
-import { User } from '@prisma/client';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { WsException } from '@nestjs/websockets';
+import { Observable } from 'rxjs';
 import { Socket } from 'socket.io';
+import { AuthService } from '../auth.service';
 
-export class JwtGuardWS extends AuthGuard('jwt') {
-  getRequest(context: ExecutionContext) {
-    const client = context.switchToWs().getClient<Socket>();
+@Injectable()
+export class JwtGuardWS implements CanActivate {
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+    private readonly authService: AuthService,
+  ) {}
 
-    const token = client.handshake.auth?.token;
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const client = context.switchToWs().getClient();
+    const token = this.extractTokenFromHandshake(client);
 
-    return {
-      headers: { authorization: token ? `Bearer ${token}` : undefined },
-    }; //like http, as passport expects
+    console.log('Guard invoked, token:', token);
+
+    if (!token) {
+      throw new WsException('Unauthorized: No token provided');
+    }
+
+    try {
+      const payload = await this.jwtService.verifyAsync(token, {
+        secret: this.configService.getOrThrow('JWT_SECRET'), // Use your JWT secret
+      });
+
+      const { password, ...safeUser } = await this.authService.validate(
+        payload.id,
+      );
+
+      client.data.user = safeUser;
+
+      return true;
+    } catch (error) {
+      console.log(error);
+      throw new WsException('Unauthorized: Invalid token');
+    }
   }
 
-  //handleRequest is called after the strategy (JWT) validates the token.
-  handleRequest(
-    err: any,
-    user: User,
-    info: any,
-    context: ExecutionContext,
-    status?: any,
-  ) {
-    const client = context.switchToWs().getClient<Socket>();
-    if (user) {
-      // Attach user payload to socket for future handlers
-      const { password, ...safeUser } = user;
-      client.data.user = safeUser;
-      return user;
+  private extractTokenFromHandshake(client: Socket): string | null {
+    const auth = client.handshake.auth;
+    if (auth && auth.token) {
+      return auth.token;
     }
-    return super.handleRequest(err, user, info, context); //call default handleRequest so error will be handled
+    return null;
   }
 }
 //client.handshake.auth or client.handshake.headers.
