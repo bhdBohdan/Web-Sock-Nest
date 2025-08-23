@@ -38,4 +38,7 @@ export class RegisterRequest {
   @MinLength(6, { message: 'password is too short (<6)' })
   @MaxLength(128, { message: 'password is too big (>128)' })
   password: string;
+
+  @IsString({ message: 'password is no string' })
+  profilePictureURL: string;
 }

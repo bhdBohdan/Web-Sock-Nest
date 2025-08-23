@@ -57,6 +57,8 @@ model User {
   email String @unique
   password String
 
+  profilePictureURL String?
+
   name String
 
   role UserPermission @default(USER)
